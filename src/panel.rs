@@ -22,8 +22,6 @@ impl fmt::Display for PanelItemId {
 pub enum PanelPosition {
     #[default]
     TopLeft,
-    TopCenter,
-    TopRight,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,44 +89,6 @@ impl PanelItem {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PanelSection {
-    Left(Vec<PanelItem>),
-    Center(Vec<PanelItem>),
-    Right(Vec<PanelItem>),
-}
-
-impl PanelSection {
-    #[must_use]
-    pub fn left(items: Vec<PanelItem>) -> Self {
-        Self::Left(items)
-    }
-
-    #[must_use]
-    pub fn center(items: Vec<PanelItem>) -> Self {
-        Self::Center(items)
-    }
-
-    #[must_use]
-    pub fn right(items: Vec<PanelItem>) -> Self {
-        Self::Right(items)
-    }
-
-    #[must_use]
-    pub fn items(&self) -> &[PanelItem] {
-        match self {
-            Self::Left(items) | Self::Center(items) | Self::Right(items) => items,
-        }
-    }
-
-    #[must_use]
-    pub fn items_mut(&mut self) -> &mut [PanelItem] {
-        match self {
-            Self::Left(items) | Self::Center(items) | Self::Right(items) => items,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct Panel {
     pub position: PanelPosition,
     pub style: PanelStyle,
@@ -147,20 +107,20 @@ impl Panel {
             center_section: Vec::new(),
             right_section: Vec::new(),
         };
-        
+
         // Initialize with default macOS-style items
         panel.left_section.push(PanelItem::new(
             PanelItemId::new(1),
             "Applications",
             Some("apple".to_string()),
         ));
-        
+
         panel.center_section.push(PanelItem::new(
             PanelItemId::new(2),
             "Clock",
             Some("clock".to_string()),
         ));
-        
+
         panel.right_section.push(PanelItem::new(
             PanelItemId::new(3),
             "Battery",
@@ -176,11 +136,11 @@ impl Panel {
             "Volume",
             Some("volume".to_string()),
         ));
-        
+
         panel
     }
 
-    pub fn layout(&mut self, output_width: u32, output_height: u32) {
+    pub fn layout(&mut self, output_width: u32, _output_height: u32) {
         let panel_y = self.style.top_margin;
         let panel_height = self.style.height;
 
@@ -195,11 +155,11 @@ impl Panel {
         }
 
         // Layout center section
-        let center_total_width = self.center_section.len() as i32 
+        let center_total_width = self.center_section.len() as i32
             * (self.style.item_width + self.style.item_spacing)
             - self.style.item_spacing;
         let mut center_x = ((output_width as i32) - center_total_width) / 2;
-        
+
         for item in &mut self.center_section {
             item.height = panel_height;
             item.width = self.style.item_width;
@@ -209,11 +169,11 @@ impl Panel {
         }
 
         // Layout right section
-        let right_total_width = self.right_section.len() as i32 
+        let right_total_width = self.right_section.len() as i32
             * (self.style.item_width + self.style.item_spacing)
             - self.style.item_spacing;
         let mut right_x = (output_width as i32) - self.style.right_margin - right_total_width;
-        
+
         for item in &mut self.right_section {
             item.height = panel_height;
             item.width = self.style.item_width;
@@ -226,7 +186,11 @@ impl Panel {
     pub fn update_hover(&mut self, x: f64, y: f64) -> bool {
         let mut changed = false;
 
-        for section in [&mut self.left_section, &mut self.center_section, &mut self.right_section] {
+        for section in [
+            &mut self.left_section,
+            &mut self.center_section,
+            &mut self.right_section,
+        ] {
             for item in section.iter_mut() {
                 let hovered = item.contains(x, y);
                 if item.hovered != hovered {
@@ -239,16 +203,25 @@ impl Panel {
         changed
     }
 
+    #[allow(dead_code)]
     #[must_use]
     pub fn item_at(&self, x: f64, y: f64) -> Option<&PanelItem> {
-        all_sections(&self.left_section, &self.center_section, &self.right_section)
-            .iter()
-            .find(|item| item.contains(x, y))
+        all_sections(
+            &self.left_section,
+            &self.center_section,
+            &self.right_section,
+        )
+        .into_iter()
+        .find(|item| item.contains(x, y))
     }
 
     #[must_use]
     pub fn items(&self) -> Vec<&PanelItem> {
-        all_sections(&self.left_section, &self.center_section, &self.right_section)
+        all_sections(
+            &self.left_section,
+            &self.center_section,
+            &self.right_section,
+        )
     }
 
     #[must_use]
@@ -256,8 +229,13 @@ impl Panel {
         self.style.height + self.style.top_margin
     }
 
+    #[allow(dead_code)]
     pub fn set_active(&mut self, id: PanelItemId, active: bool) {
-        for section in [&mut self.left_section, &mut self.center_section, &mut self.right_section] {
+        for section in [
+            &mut self.left_section,
+            &mut self.center_section,
+            &mut self.right_section,
+        ] {
             if let Some(item) = section.iter_mut().find(|item| item.id == id) {
                 item.active = active;
             }
@@ -270,5 +248,8 @@ fn all_sections<'a>(
     center: &'a [PanelItem],
     right: &'a [PanelItem],
 ) -> Vec<&'a PanelItem> {
-    left.iter().chain(center.iter()).chain(right.iter()).collect()
+    left.iter()
+        .chain(center.iter())
+        .chain(right.iter())
+        .collect()
 }

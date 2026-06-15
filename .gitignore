@@ -1,50 +1,9 @@
-```
-# Compiled and build artifacts
-*.o
-*.obj
-*.exe
-*.dll
-*.so
-*.a
-*.out
-*.pyc
-*.class
-__pycache__/
+/target/
+/project-code.txt
 
-# Dependencies
-node_modules/
-venv/
-.venv/
-.env
-.env.local
-*.env.*
-
-# Build directories (common in Rust projects)
-target/
-dist/
-build/
-
-# IDE/Editor files
-.vscode/
-.idea/
-*.swp
-*.swo
+*.log
 *.tmp
 
-# System files
+.idea/
+.vscode/
 .DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Cache directories
-.mypy_cache/
-.pytest_cache/
-.gradle/
-```

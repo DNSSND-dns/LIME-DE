@@ -86,7 +86,7 @@ impl Default for RuntimeConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct StyleConfig {
     pub window: WindowStyleConfig,

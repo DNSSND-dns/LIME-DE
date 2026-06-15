@@ -705,7 +705,7 @@ impl CompositorState {
         let panel_background_color = self.panel_background_color();
         let panel_text_color = self.panel_text_color();
         let panel_radius = self.panel.style.radius;
-        
+
         // Draw panel background
         scene_frame.push_rounded_rect(RenderRoundedRect::with_vertical_radii(
             0,
@@ -716,7 +716,7 @@ impl CompositorState {
             panel_radius,
             panel_background_color,
         ));
-        
+
         // Render panel items
         for item in self.panel.items() {
             if let Some(icon) = &item.icon {

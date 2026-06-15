@@ -27,6 +27,15 @@ bubble_radius = 50
 active_scale = 1.0
 hover_scale = 1.0
 
+[style.panel]
+height = 28
+item_width = 80
+item_spacing = 12
+left_margin = 16
+right_margin = 16
+top_margin = 8
+radius = 6
+
 [style.colors]
 background = "#000000"
 window_frame = "#14191c"
@@ -41,6 +50,8 @@ maximize_button = "#28c840"
 dock_bubble = "#202629"
 dock_active = "#202629"
 dock_text = "#dbeae0"
+panel_background = "#202629"
+panel_text = "#dbeae0"
 
 [behavior.windows]
 resize_model = "fixed_after_user_resize"
