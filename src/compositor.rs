@@ -235,9 +235,33 @@ impl CompositorState {
             .expect("LIME DE compositor state should always have a primary output")
     }
 
+    fn work_area_geometry(&self) -> WindowGeometry {
+        let (output_width, output_height) = self.primary_output_size();
+        let y = self
+            .shell
+            .reserved_top_height()
+            .clamp(0, output_height as i32);
+
+        WindowGeometry {
+            x: 0,
+            y,
+            width: output_width as i32,
+            height: (output_height as i32 - y).max(1),
+        }
+    }
+
     fn geometry_for_output(&self, geometry: WindowGeometry) -> WindowGeometry {
-        let (width, height) = self.primary_output_size();
-        geometry.with_default_for_output(width, height)
+        if geometry.width > 0 && geometry.height > 0 {
+            return geometry;
+        }
+
+        let work_area = self.work_area_geometry();
+        let mut geometry =
+            geometry.with_default_for_output(work_area.width as u32, work_area.height as u32);
+        geometry.x += work_area.x;
+        geometry.y += work_area.y;
+
+        geometry
     }
 
     fn window_decoration(&self) -> WindowDecoration {
@@ -335,9 +359,9 @@ impl CompositorState {
         size: Option<(i32, i32)>,
     ) -> WindowGeometry {
         let decoration = self.window_decoration();
-        let (output_width, output_height) = self.primary_output_size();
-        let output_width = output_width as i32;
-        let output_height = output_height as i32;
+        let work_area = self.work_area_geometry();
+        let output_width = work_area.width;
+        let output_height = work_area.height;
         let (width, height) = size.map_or_else(
             || {
                 (
@@ -352,8 +376,8 @@ impl CompositorState {
         let width = width.max(1);
         let height = height.max(1);
         let cascade_offset = cascade_index as i32 * 32;
-        let x = ((output_width - width) / 2) + cascade_offset;
-        let y = ((output_height - height) / 2) + cascade_offset;
+        let x = work_area.x + ((output_width - width) / 2) + cascade_offset;
+        let y = work_area.y + ((output_height - height) / 2) + cascade_offset;
         let mut geometry = WindowGeometry {
             x,
             y,
@@ -361,9 +385,7 @@ impl CompositorState {
             height,
         };
 
-        if let Some(output) = self.outputs.first() {
-            clamp_window_to_output(&mut geometry, output);
-        }
+        clamp_window_to_area(&mut geometry, work_area);
 
         geometry
     }
@@ -425,9 +447,7 @@ impl CompositorState {
 
         geometry.width = total_width;
         geometry.height = total_height;
-        if let Some(output) = self.outputs.first() {
-            clamp_window_to_output(&mut geometry, output);
-        }
+        clamp_window_to_area(&mut geometry, self.work_area_geometry());
         self.windows[index].window.geometry = geometry;
         println!(
             "Window geometry updated: {} {} {} {} {}",
@@ -482,11 +502,11 @@ impl CompositorState {
             .move_to(self.cursor.x, self.cursor.y, width, height);
         self.shell.layout(width, height);
         self.shell.update_hover(self.cursor.x, self.cursor.y);
-        let output = self.outputs[0].clone();
+        let work_area = self.work_area_geometry();
         let mut geometry_changed = false;
         for tracked in &mut self.windows {
             let previous_geometry = tracked.window.geometry;
-            clamp_window_to_output(&mut tracked.window.geometry, &output);
+            clamp_window_to_area(&mut tracked.window.geometry, work_area);
             if tracked.window.geometry != previous_geometry {
                 geometry_changed = true;
                 println!(
@@ -531,12 +551,7 @@ impl CompositorState {
             }
 
             let geometry = animation_frame.as_ref().map_or_else(
-                || {
-                    tracked
-                        .window
-                        .geometry
-                        .with_default_for_output(output_width, output_height)
-                },
+                || self.geometry_for_output(tracked.window.geometry),
                 |frame| frame.rect,
             );
             let decoration = self.window_decoration();
@@ -1022,7 +1037,9 @@ impl CompositorState {
                 let mut consumed_by_compositor = false;
 
                 if button == WinitMouseButton::Left && pressed {
-                    if self.handle_dock_button_press() {
+                    if self.shell.panel_contains(self.cursor.x, self.cursor.y) {
+                        consumed_by_compositor = true;
+                    } else if self.handle_dock_button_press() {
                         consumed_by_compositor = true;
                     } else if let Some(window_id) =
                         self.hit_test_window(self.cursor.x, self.cursor.y)
@@ -1116,6 +1133,10 @@ impl CompositorState {
     }
 
     fn hit_test_window(&self, x: f64, y: f64) -> Option<WindowId> {
+        if self.shell.panel_contains(x, y) {
+            return None;
+        }
+
         self.z_order.iter().rev().find_map(|window_id| {
             let tracked = self.window_for_id(*window_id)?;
             let geometry = self.geometry_for_output(tracked.window.geometry);
@@ -1132,6 +1153,10 @@ impl CompositorState {
     }
 
     fn hit_test_client_window(&self, x: f64, y: f64) -> Option<WindowId> {
+        if self.shell.panel_contains(x, y) {
+            return None;
+        }
+
         self.z_order.iter().rev().find_map(|window_id| {
             let tracked = self.window_for_id(*window_id)?;
             let geometry = self.geometry_for_output(tracked.window.geometry);
@@ -1529,9 +1554,6 @@ impl CompositorState {
         let Some(index) = self.window_index_for_id(window_id) else {
             return;
         };
-        let Some(output) = self.outputs.first().cloned() else {
-            return;
-        };
         if self.windows[index].window.animating {
             return;
         }
@@ -1548,15 +1570,7 @@ impl CompositorState {
             )
         } else {
             self.windows[index].window.restore_geometry = Some(self.windows[index].window.geometry);
-            (
-                AnimationKind::MaximizeWindow,
-                WindowGeometry {
-                    x: 0,
-                    y: 0,
-                    width: output.width as i32,
-                    height: output.height as i32,
-                },
-            )
+            (AnimationKind::MaximizeWindow, self.work_area_geometry())
         };
 
         if !self.animations_enabled() {
@@ -1665,14 +1679,12 @@ impl CompositorState {
             } => {
                 let dx = (self.cursor.x - start_cursor.0) as i32;
                 let dy = (self.cursor.y - start_cursor.1) as i32;
-                let output = self.outputs.first().cloned();
+                let work_area = self.work_area_geometry();
 
                 if let Some(window) = self.window_mut_for_id(window_id) {
                     window.geometry.x = start_geometry.x + dx;
                     window.geometry.y = start_geometry.y + dy;
-                    if let Some(output) = output.as_ref() {
-                        clamp_window_to_output(&mut window.geometry, output);
-                    }
+                    clamp_window_to_area(&mut window.geometry, work_area);
                     self.request_redraw();
                 }
             }
@@ -1684,7 +1696,7 @@ impl CompositorState {
             } => {
                 let dx = (self.cursor.x - start_cursor.0) as i32;
                 let dy = (self.cursor.y - start_cursor.1) as i32;
-                let output = self.outputs.first().cloned();
+                let work_area = self.work_area_geometry();
                 let mut resized = false;
 
                 if let Some(window) = self.window_mut_for_id(window_id) {
@@ -1702,9 +1714,7 @@ impl CompositorState {
                             window.geometry.height = (start_geometry.height + dy).max(80);
                         }
                     }
-                    if let Some(output) = output.as_ref() {
-                        clamp_window_to_output(&mut window.geometry, output);
-                    }
+                    clamp_window_to_area(&mut window.geometry, work_area);
                     resized = window.geometry != previous_geometry;
                     self.request_redraw();
                 }
@@ -1910,18 +1920,19 @@ fn update_wayland_output(wayland_output: &SmithayOutput, output: &Output) {
     wayland_output.set_preferred(mode);
 }
 
-fn clamp_window_to_output(window: &mut WindowGeometry, output: &Output) {
-    let output_width = output.width as i32;
-    let output_height = output.height as i32;
-
-    if output_width <= 0 || output_height <= 0 {
+fn clamp_window_to_area(window: &mut WindowGeometry, area: WindowGeometry) {
+    if area.width <= 0 || area.height <= 0 {
         return;
     }
 
-    window.width = window.width.max(1).min(output_width);
-    window.height = window.height.max(1).min(output_height);
-    window.x = window.x.clamp(0, (output_width - window.width).max(0));
-    window.y = window.y.clamp(0, (output_height - window.height).max(0));
+    window.width = window.width.max(1).min(area.width);
+    window.height = window.height.max(1).min(area.height);
+    window.x = window
+        .x
+        .clamp(area.x, (area.x + area.width - window.width).max(area.x));
+    window.y = window
+        .y
+        .clamp(area.y, (area.y + area.height - window.height).max(area.y));
 }
 
 fn button_hit(button: WindowButtonGeometry, x: f64, y: f64) -> bool {

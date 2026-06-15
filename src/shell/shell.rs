@@ -45,6 +45,16 @@ impl Shell {
     }
 
     #[must_use]
+    pub fn reserved_top_height(&self) -> i32 {
+        self.panel.height()
+    }
+
+    #[must_use]
+    pub fn panel_contains(&self, x: f64, y: f64) -> bool {
+        x >= 0.0 && y >= 0.0 && y < f64::from(self.reserved_top_height())
+    }
+
+    #[must_use]
     pub fn dock_item_at(&self, x: f64, y: f64) -> Option<&DockItem> {
         self.dock.item_at(x, y)
     }
