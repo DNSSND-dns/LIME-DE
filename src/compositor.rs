@@ -85,6 +85,7 @@ pub struct Compositor {
     behavior: BehaviorConfig,
     animations_config: AnimationConfig,
     test_client: Option<Child>,
+    launched_clients: Vec<Child>,
     winit_backend: Option<WinitBackend>,
     wayland: Option<WaylandRuntime>,
 }
@@ -2141,6 +2142,7 @@ impl Compositor {
             behavior,
             animations_config,
             test_client: None,
+            launched_clients: Vec::new(),
             winit_backend: None,
             wayland: None,
         }
@@ -2267,6 +2269,7 @@ impl Compositor {
                         self.test_client = Some(child);
                         println!("Test client launched");
                     } else {
+                        self.launched_clients.push(child);
                         println!("Dock client launched: {command_spec}");
                     }
                     return;
@@ -2359,17 +2362,11 @@ impl Compositor {
         }
 
         self.running.store(false, Ordering::Release);
+        for mut client in self.launched_clients.drain(..) {
+            terminate_child_process(&mut client, "launched client");
+        }
         if let Some(mut test_client) = self.test_client.take() {
-            match test_client.try_wait() {
-                Ok(Some(_status)) => {}
-                Ok(None) => {
-                    let _ = test_client.kill();
-                    let _ = test_client.wait();
-                }
-                Err(error) => {
-                    eprintln!("LIME DE could not query test client state: {error}");
-                }
-            }
+            terminate_child_process(&mut test_client, "test client");
         }
         if let Some(mut winit_backend) = self.winit_backend.take() {
             winit_backend.shutdown();
@@ -2378,6 +2375,19 @@ impl Compositor {
         self.initialized = false;
 
         Ok(())
+    }
+}
+
+fn terminate_child_process(child: &mut Child, label: &str) {
+    match child.try_wait() {
+        Ok(Some(_status)) => {}
+        Ok(None) => {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        Err(error) => {
+            eprintln!("LIME DE could not query {label} state: {error}");
+        }
     }
 }
 
