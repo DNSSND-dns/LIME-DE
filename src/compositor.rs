@@ -58,16 +58,15 @@ use crate::{
     backend::{WinitBackend, WinitBackendOutputEvent, WinitMouseButton},
     client_buffer::read_shm_pixels,
     config::{AnimationConfig, BehaviorConfig, StyleConfig},
-    dock::{Dock, DockItemId, DockStyle},
     error::AppError,
     input::CursorState,
     output::Output,
-    panel::{Panel, PanelStyle},
     render::{
         RenderBackend, RenderCircle, RenderColor, RenderImage, RenderRect, RenderRoundedRect,
         RenderSceneFrame, RenderText,
     },
     scene::{Scene, SceneNodeId},
+    shell::{DockItemId, Shell},
     window::{
         ClientBufferMetadata, ClientBufferPixels, Window, WindowButtonGeometry, WindowDecoration,
         WindowGeometry, WindowId,
@@ -109,8 +108,7 @@ pub struct CompositorState {
     wayland_outputs: Vec<SmithayOutput>,
     render_backend: RenderBackend,
     scene: Scene,
-    dock: Dock,
-    panel: Panel,
+    shell: Shell,
     animations: AnimationManager,
     output_scene_nodes: Vec<SceneNodeId>,
     windows: Vec<TrackedWindow>,
@@ -163,8 +161,7 @@ impl CompositorState {
         println!("Cursor initialized");
         let render_backend = RenderBackend::new();
         let mut scene = Scene::new();
-        let mut dock = Dock::new(DockStyle::from_config(&style.dock));
-        let mut panel = Panel::new(PanelStyle::from_config(&style.panel));
+        let mut shell = Shell::new(&style);
         let mut output_scene_nodes = Vec::new();
 
         for output in &outputs {
@@ -174,8 +171,7 @@ impl CompositorState {
             );
             output_scene_nodes.push(scene.add_output(output.id));
         }
-        dock.layout(outputs[0].width, outputs[0].height);
-        panel.layout(outputs[0].width, outputs[0].height);
+        shell.layout(outputs[0].width, outputs[0].height);
 
         Self {
             display_handle,
@@ -195,8 +191,7 @@ impl CompositorState {
             wayland_outputs,
             render_backend,
             scene,
-            dock,
-            panel,
+            shell,
             animations: AnimationManager::new(),
             output_scene_nodes,
             windows: Vec::new(),
@@ -485,10 +480,8 @@ impl CompositorState {
 
         self.cursor
             .move_to(self.cursor.x, self.cursor.y, width, height);
-        self.dock.layout(width, height);
-        self.panel.layout(width, height);
-        self.dock.update_hover(self.cursor.x, self.cursor.y);
-        self.panel.update_hover(self.cursor.x, self.cursor.y);
+        self.shell.layout(width, height);
+        self.shell.update_hover(self.cursor.x, self.cursor.y);
         let output = self.outputs[0].clone();
         let mut geometry_changed = false;
         for tracked in &mut self.windows {
@@ -679,8 +672,8 @@ impl CompositorState {
 
         let dock_bubble_color = self.dock_bubble_color();
         let dock_text_color = self.dock_text_color();
-        let dock_radius = self.dock.style.bubble_radius;
-        for item in self.dock.items() {
+        let dock_radius = self.shell.dock().style.bubble_radius;
+        for item in self.shell.dock().items() {
             let radius = dock_radius.min(item.size / 2).max(0);
             scene_frame.push_rounded_rect(RenderRoundedRect::with_vertical_radii(
                 item.x,
@@ -705,21 +698,21 @@ impl CompositorState {
         // Render top panel (macOS-style menu bar)
         let panel_background_color = self.panel_background_color();
         let panel_text_color = self.panel_text_color();
-        let panel_radius = self.panel.style.radius;
+        let panel_radius = self.shell.panel().style.radius;
 
         // Draw panel background
         scene_frame.push_rounded_rect(RenderRoundedRect::with_vertical_radii(
             0,
             0,
             output_width as i32,
-            self.panel.height(),
+            self.shell.panel().height(),
             panel_radius,
             panel_radius,
             panel_background_color,
         ));
 
         // Render panel items
-        for item in self.panel.items() {
+        for item in self.shell.panel().items() {
             if let Some(icon) = &item.icon {
                 // Simple icon representation using first character
                 if let Some(initial) = icon.chars().next() {
@@ -1007,12 +1000,13 @@ impl CompositorState {
                 let Some(output) = self.outputs.first() else {
                     return;
                 };
+                let (output_width, output_height) = (output.width, output.height);
                 let previous_cursor = self.cursor;
-                self.cursor.move_to(x, y, output.width, output.height);
+                self.cursor.move_to(x, y, output_width, output_height);
 
                 if self.cursor != previous_cursor {
-                    if self.dock.update_hover(self.cursor.x, self.cursor.y) {
-                        self.dock.layout(output.width, output.height);
+                    if self.shell.update_hover(self.cursor.x, self.cursor.y) {
+                        self.shell.layout(output_width, output_height);
                     }
                     if self.is_window_interaction_active() {
                         self.update_window_interaction();
@@ -1251,7 +1245,7 @@ impl CompositorState {
     }
 
     fn handle_dock_button_press(&mut self) -> bool {
-        let Some(item) = self.dock.item_at(self.cursor.x, self.cursor.y) else {
+        let Some(item) = self.shell.dock_item_at(self.cursor.x, self.cursor.y) else {
             return false;
         };
         let item_id = item.id;
@@ -1278,7 +1272,7 @@ impl CompositorState {
                     .window
                     .app_id
                     .as_deref()
-                    .is_some_and(|app_id| self.dock.app_matches_item(item_id, app_id)))
+                    .is_some_and(|app_id| self.shell.dock().app_matches_item(item_id, app_id)))
             .then_some(*window_id)
         })
     }
@@ -1295,7 +1289,7 @@ impl CompositorState {
             return;
         }
         let app_id = self.windows[index].window.app_id.clone();
-        let Some(to_rect) = self.dock.item_rect_for_app(app_id.as_deref()) else {
+        let Some(to_rect) = self.shell.dock().item_rect_for_app(app_id.as_deref()) else {
             self.windows[index].surface.send_close();
             return;
         };
@@ -1320,7 +1314,7 @@ impl CompositorState {
             u64::from(self.animations_config.window_close_ms),
             Easing::EaseInOutCubic,
             decoration.corner_radius,
-            self.dock.style.bubble_radius,
+            self.shell.dock().style.bubble_radius,
         );
 
         println!("Close animation started: {window_id}");
@@ -1336,7 +1330,7 @@ impl CompositorState {
             return;
         }
         let app_id = self.windows[index].window.app_id.clone();
-        let Some(to_rect) = self.dock.item_rect_for_app(app_id.as_deref()) else {
+        let Some(to_rect) = self.shell.dock().item_rect_for_app(app_id.as_deref()) else {
             return;
         };
         let decoration = self.window_decoration();
@@ -1344,7 +1338,9 @@ impl CompositorState {
 
         if !self.animations_enabled() {
             self.windows[index].window.minimized = true;
-            self.dock.set_active_for_app(app_id.as_deref(), true);
+            self.shell
+                .dock_mut()
+                .set_active_for_app(app_id.as_deref(), true);
             self.request_redraw();
             return;
         }
@@ -1368,7 +1364,7 @@ impl CompositorState {
             u64::from(self.animations_config.window_close_ms),
             Easing::EaseInOutCubic,
             decoration.corner_radius,
-            self.dock.style.bubble_radius,
+            self.shell.dock().style.bubble_radius,
         );
 
         println!("Minimize animation started: {window_id}");
@@ -1384,7 +1380,7 @@ impl CompositorState {
                     .window
                     .app_id
                     .as_deref()
-                    .is_some_and(|app_id| self.dock.app_matches_item(item_id, app_id))
+                    .is_some_and(|app_id| self.shell.dock().app_matches_item(item_id, app_id))
         }) else {
             return false;
         };
@@ -1393,7 +1389,7 @@ impl CompositorState {
             return false;
         }
         let app_id = self.windows[index].window.app_id.clone();
-        let Some(from_rect) = self.dock.item_rect_for_app(app_id.as_deref()) else {
+        let Some(from_rect) = self.shell.dock().item_rect_for_app(app_id.as_deref()) else {
             return false;
         };
         let decoration = self.window_decoration();
@@ -1401,7 +1397,9 @@ impl CompositorState {
 
         if !self.animations_enabled() {
             self.windows[index].window.minimized = false;
-            self.dock.set_active_for_app(app_id.as_deref(), false);
+            self.shell
+                .dock_mut()
+                .set_active_for_app(app_id.as_deref(), false);
             self.focus_window(window_id);
             self.update_pointer_focus();
             return true;
@@ -1417,7 +1415,7 @@ impl CompositorState {
             to_rect,
             u64::from(self.animations_config.window_open_ms),
             Easing::EaseOutCubic,
-            self.dock.style.bubble_radius,
+            self.shell.dock().style.bubble_radius,
             decoration.corner_radius,
         );
 
@@ -1432,7 +1430,7 @@ impl CompositorState {
             return;
         }
         let app_id = self.windows[index].window.app_id.clone();
-        let Some(from_rect) = self.dock.item_rect_for_app(app_id.as_deref()) else {
+        let Some(from_rect) = self.shell.dock().item_rect_for_app(app_id.as_deref()) else {
             return;
         };
         let window_id = self.windows[index].window.id;
@@ -1448,7 +1446,7 @@ impl CompositorState {
             to_rect,
             u64::from(self.animations_config.window_open_ms),
             Easing::EaseOutCubic,
-            self.dock.style.bubble_radius,
+            self.shell.dock().style.bubble_radius,
             decoration.corner_radius,
         );
 
@@ -1483,20 +1481,26 @@ impl CompositorState {
                 AnimationKind::CloseToDock => {
                     self.windows[index].window.minimized = true;
                     self.windows[index].window.animation_client_pixels = None;
-                    self.dock.set_active_for_app(app_id.as_deref(), false);
+                    self.shell
+                        .dock_mut()
+                        .set_active_for_app(app_id.as_deref(), false);
                     println!("Close animation finished: {}", animation.window_id);
                     self.windows[index].surface.send_close();
                 }
                 AnimationKind::MinimizeToDock => {
                     self.windows[index].window.minimized = true;
                     self.windows[index].window.animation_client_pixels = None;
-                    self.dock.set_active_for_app(app_id.as_deref(), true);
+                    self.shell
+                        .dock_mut()
+                        .set_active_for_app(app_id.as_deref(), true);
                     println!("Minimize animation finished: {}", animation.window_id);
                 }
                 AnimationKind::RestoreFromDock => {
                     self.windows[index].window.minimized = false;
                     self.windows[index].window.animation_client_pixels = None;
-                    self.dock.set_active_for_app(app_id.as_deref(), false);
+                    self.shell
+                        .dock_mut()
+                        .set_active_for_app(app_id.as_deref(), false);
                     println!("Restore animation finished: {}", animation.window_id);
                     self.focus_window(animation.window_id);
                 }
