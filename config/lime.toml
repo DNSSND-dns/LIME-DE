@@ -1,0 +1,58 @@
+app_name = "LIME DE"
+
+[runtime]
+use_winit_test_backend = true
+launch_test_client = true
+test_client_commands = [
+  "foot",
+  "weston-terminal",
+  "alacritty",
+  "kitty",
+]
+
+[style.window]
+titlebar_height = 34
+border_width = 1
+corner_radius = 15
+bottom_corner_radius = 15
+button_diameter = 12
+button_spacing = 8
+button_left_padding = 12
+
+[style.dock]
+bubble_size = 56
+bubble_gap = 14
+bottom_margin = 24
+bubble_radius = 50
+active_scale = 1.0
+hover_scale = 1.0
+
+[style.colors]
+background = "#000000"
+window_frame = "#14191c"
+titlebar = "#22282b"
+border_focused = "#b3ff40"
+title_text = "#dbeae0"
+placeholder_window = "#1a8cf2"
+cursor = "#ffffff"
+close_button = "#ff5f57"
+minimize_button = "#ffbd2e"
+maximize_button = "#28c840"
+dock_bubble = "#202629"
+dock_active = "#202629"
+dock_text = "#dbeae0"
+
+[behavior.windows]
+resize_model = "fixed_after_user_resize"
+client_buffer_mode = "fit_to_window"
+allow_client_geometry_before_user_resize = true
+accept_client_geometry_during_live_resize = false
+send_configure_during_live_resize = true
+send_configure_on_resize_release = true
+
+[animations]
+enabled = true
+window_open_ms = 300
+window_close_ms = 300
+resize_ms = 300
+curve = "ease-out"

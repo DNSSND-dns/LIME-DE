@@ -1,0 +1,9 @@
+/target/
+/project-code.txt
+
+*.log
+*.tmp
+
+.idea/
+.vscode/
+.DS_Store
