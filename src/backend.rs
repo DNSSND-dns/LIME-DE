@@ -186,8 +186,6 @@ struct WinitBackendApp {
     context: Option<Context<Arc<Window>>>,
     surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     pending_frame: RenderSceneFrame,
-    first_present_done: bool,
-    first_real_buffer_done: bool,
     framebuffer_size: Option<(u32, u32)>,
 }
 
@@ -211,8 +209,6 @@ impl WinitBackendApp {
             context: None,
             surface: None,
             pending_frame: RenderSceneFrame::new(crate::render::RenderColor::black()),
-            first_present_done: false,
-            first_real_buffer_done: false,
             framebuffer_size: None,
         }
     }
@@ -284,15 +280,6 @@ impl WinitBackendApp {
         }
 
         let _ = self.output_tx.send(WinitBackendOutputEvent::FramePresented);
-
-        if !self.first_present_done {
-            println!("Winit framebuffer cleared to black");
-            self.first_present_done = true;
-        }
-        if self.pending_frame.has_client_images() && !self.first_real_buffer_done {
-            println!("Real client buffer rendered");
-            self.first_real_buffer_done = true;
-        }
     }
 }
 

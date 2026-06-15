@@ -533,8 +533,6 @@ impl CompositorState {
         self.last_frame_time = now;
         self.animations.update(delta_ms);
 
-        println!("Frame {}", self.frame_counter);
-
         let mut scene_frame = RenderSceneFrame::new(self.background_color());
         let (output_width, output_height) = self.primary_output_size();
         let _scene_window_geometries = self
@@ -793,8 +791,7 @@ impl CompositorState {
     }
 
     fn should_render_frame(&self) -> bool {
-        !self.awaiting_frame_presentation
-            && self.last_frame_time.elapsed() >= self.target_frame_interval
+        self.last_frame_time.elapsed() >= self.target_frame_interval
     }
 
     fn mark_frame_submitted(&mut self) {
@@ -2318,9 +2315,15 @@ impl Compositor {
                     .as_mut()
                     .ok_or_else(|| AppError::new("Wayland runtime is missing"))?;
 
+                let dispatch_timeout = if wayland.state.animations.has_active() {
+                    Duration::ZERO
+                } else {
+                    Duration::from_millis(16)
+                };
+
                 wayland
                     .event_loop
-                    .dispatch(Duration::from_millis(16), &mut wayland.state)
+                    .dispatch(dispatch_timeout, &mut wayland.state)
                     .map_err(|error| {
                         AppError::new(format!("event loop dispatch failed: {error}"))
                     })?;

@@ -155,11 +155,6 @@ impl RenderSceneFrame {
         }
     }
 
-    #[must_use]
-    pub fn has_client_images(&self) -> bool {
-        !self.images.is_empty()
-    }
-
     pub fn push_rounded_rect(&mut self, rectangle: RenderRoundedRect) {
         self.rounded_rectangles.push(rectangle);
         self.commands.push(RenderCommand::RoundedRect(rectangle));
@@ -366,32 +361,17 @@ impl RenderBackend {
     }
 
     pub fn begin_frame(&mut self, output: &Output) {
-        println!("Begin frame: {}", output.name());
-
         self.current_frame = Some(RenderFrame {
             output_name: output.name().to_owned(),
         });
     }
 
-    pub fn clear(&mut self, _color: RenderColor) {
-        if self.current_frame.is_some() {
-            println!("Clear frame");
-        }
-    }
+    pub fn clear(&mut self, _color: RenderColor) {}
 
-    pub fn draw_rect(&mut self, rect: RenderRect) {
-        if self.current_frame.is_some() {
-            println!(
-                "Draw rect: {} {} {}x{}",
-                rect.x, rect.y, rect.width, rect.height
-            );
-        }
-    }
+    pub fn draw_rect(&mut self, _rect: RenderRect) {}
 
     pub fn finish_frame(&mut self) {
-        if self.current_frame.take().is_some() {
-            println!("Finish frame");
-        }
+        self.current_frame = None;
     }
 }
 
