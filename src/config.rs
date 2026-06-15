@@ -86,11 +86,12 @@ impl Default for RuntimeConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct StyleConfig {
     pub window: WindowStyleConfig,
     pub dock: DockStyleConfig,
+    pub panel: PanelStyleConfig,
     pub colors: ColorStyleConfig,
 }
 
@@ -99,6 +100,7 @@ impl Default for StyleConfig {
         Self {
             window: WindowStyleConfig::default(),
             dock: DockStyleConfig::default(),
+            panel: PanelStyleConfig::default(),
             colors: ColorStyleConfig::default(),
         }
     }
@@ -156,6 +158,32 @@ impl Default for DockStyleConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
+pub struct PanelStyleConfig {
+    pub height: i32,
+    pub item_width: i32,
+    pub item_spacing: i32,
+    pub left_margin: i32,
+    pub right_margin: i32,
+    pub top_margin: i32,
+    pub radius: i32,
+}
+
+impl Default for PanelStyleConfig {
+    fn default() -> Self {
+        Self {
+            height: 28,
+            item_width: 80,
+            item_spacing: 12,
+            left_margin: 16,
+            right_margin: 16,
+            top_margin: 8,
+            radius: 6,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default)]
 pub struct ColorStyleConfig {
     pub background: String,
     pub window_frame: String,
@@ -170,6 +198,8 @@ pub struct ColorStyleConfig {
     pub dock_bubble: String,
     pub dock_active: String,
     pub dock_text: String,
+    pub panel_background: String,
+    pub panel_text: String,
 }
 
 impl Default for ColorStyleConfig {
@@ -188,6 +218,8 @@ impl Default for ColorStyleConfig {
             dock_bubble: String::from("#202629"),
             dock_active: String::from("#b3ff40"),
             dock_text: String::from("#dbeae0"),
+            panel_background: String::from("#202629"),
+            panel_text: String::from("#dbeae0"),
         }
     }
 }

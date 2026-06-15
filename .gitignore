@@ -1,9 +1,50 @@
-/target/
-/project-code.txt
+```
+# Compiled and build artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
+*.pyc
+*.class
+__pycache__/
 
-*.log
+# Dependencies
+node_modules/
+venv/
+.venv/
+.env
+.env.local
+*.env.*
+
+# Build directories (common in Rust projects)
+target/
+dist/
+build/
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
 *.tmp
 
-.idea/
-.vscode/
+# System files
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Cache directories
+.mypy_cache/
+.pytest_cache/
+.gradle/
+```

@@ -62,6 +62,7 @@ use crate::{
     error::AppError,
     input::CursorState,
     output::Output,
+    panel::{Panel, PanelStyle},
     render::{
         RenderBackend, RenderCircle, RenderColor, RenderImage, RenderRect, RenderRoundedRect,
         RenderSceneFrame, RenderText,
@@ -108,6 +109,7 @@ pub struct CompositorState {
     render_backend: RenderBackend,
     scene: Scene,
     dock: Dock,
+    panel: Panel,
     animations: AnimationManager,
     output_scene_nodes: Vec<SceneNodeId>,
     windows: Vec<TrackedWindow>,
@@ -161,6 +163,7 @@ impl CompositorState {
         let render_backend = RenderBackend::new();
         let mut scene = Scene::new();
         let mut dock = Dock::new(DockStyle::from_config(&style.dock));
+        let mut panel = Panel::new(PanelStyle::from_config(&style.panel));
         let mut output_scene_nodes = Vec::new();
 
         for output in &outputs {
@@ -171,6 +174,7 @@ impl CompositorState {
             output_scene_nodes.push(scene.add_output(output.id));
         }
         dock.layout(outputs[0].width, outputs[0].height);
+        panel.layout(outputs[0].width, outputs[0].height);
 
         Self {
             display_handle,
@@ -191,6 +195,7 @@ impl CompositorState {
             render_backend,
             scene,
             dock,
+            panel,
             animations: AnimationManager::new(),
             output_scene_nodes,
             windows: Vec::new(),
@@ -311,6 +316,17 @@ impl CompositorState {
 
     fn dock_text_color(&self) -> RenderColor {
         self.color_from_config(&self.style.colors.dock_text, RenderColor::title_text())
+    }
+
+    fn panel_background_color(&self) -> RenderColor {
+        self.color_from_config(
+            &self.style.colors.panel_background,
+            RenderColor::from_rgb_u8(32, 38, 41),
+        )
+    }
+
+    fn panel_text_color(&self) -> RenderColor {
+        self.color_from_config(&self.style.colors.panel_text, RenderColor::title_text())
     }
 
     fn animations_enabled(&self) -> bool {
@@ -469,7 +485,9 @@ impl CompositorState {
         self.cursor
             .move_to(self.cursor.x, self.cursor.y, width, height);
         self.dock.layout(width, height);
+        self.panel.layout(width, height);
         self.dock.update_hover(self.cursor.x, self.cursor.y);
+        self.panel.update_hover(self.cursor.x, self.cursor.y);
         let output = self.outputs[0].clone();
         let mut geometry_changed = false;
         for tracked in &mut self.windows {
@@ -680,6 +698,47 @@ impl CompositorState {
                     initial.to_string(),
                     dock_text_color,
                 ));
+            }
+        }
+
+        // Render top panel (macOS-style menu bar)
+        let panel_background_color = self.panel_background_color();
+        let panel_text_color = self.panel_text_color();
+        let panel_radius = self.panel.style.radius;
+        
+        // Draw panel background
+        scene_frame.push_rounded_rect(RenderRoundedRect::with_vertical_radii(
+            0,
+            0,
+            output_width as i32,
+            self.panel.height(),
+            panel_radius,
+            panel_radius,
+            panel_background_color,
+        ));
+        
+        // Render panel items
+        for item in self.panel.items() {
+            if let Some(icon) = &item.icon {
+                // Simple icon representation using first character
+                if let Some(initial) = icon.chars().next() {
+                    scene_frame.push_text(RenderText::new(
+                        item.x + item.width / 2 - 3,
+                        item.y + item.height / 2 - 5,
+                        initial.to_string(),
+                        panel_text_color,
+                    ));
+                }
+            } else {
+                // Fallback to label if no icon
+                if let Some(initial) = item.label.chars().next() {
+                    scene_frame.push_text(RenderText::new(
+                        item.x + item.width / 2 - 3,
+                        item.y + item.height / 2 - 5,
+                        initial.to_string(),
+                        panel_text_color,
+                    ));
+                }
             }
         }
 

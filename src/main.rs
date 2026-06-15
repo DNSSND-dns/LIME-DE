@@ -8,6 +8,7 @@ mod dock;
 mod error;
 mod input;
 mod output;
+mod panel;
 mod render;
 mod scene;
 mod state;
