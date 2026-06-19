@@ -1,8 +1,9 @@
-use std::{fs, path::Path};
+use std::{env, fs, path::Path};
 
 use serde::Deserialize;
 
 pub const DEFAULT_CONFIG_PATH: &str = "config/lime.toml";
+pub const CONFIG_ENV_VAR: &str = "LIME_CONFIG";
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
@@ -17,13 +18,29 @@ pub struct Config {
 impl Config {
     #[must_use]
     pub fn load_or_default() -> Self {
-        match Self::load_from_path(DEFAULT_CONFIG_PATH) {
+        match Self::load_from_default_locations() {
             Ok(config) => config,
             Err(error) => {
                 eprintln!("LIME DE config fallback: {error}");
                 Self::default()
             }
         }
+    }
+
+    pub fn load_from_default_locations() -> Result<Self, String> {
+        if let Ok(path) = env::var(CONFIG_ENV_VAR) {
+            return Self::load_from_path(path);
+        }
+
+        for path in default_config_paths() {
+            if path.exists() {
+                return Self::load_from_path(path);
+            }
+        }
+
+        Err(format!(
+            "no config found; set {CONFIG_ENV_VAR} or create {DEFAULT_CONFIG_PATH}"
+        ))
     }
 
     pub fn load_from_path(path: impl AsRef<Path>) -> Result<Self, String> {
@@ -36,8 +53,11 @@ impl Config {
     }
 
     #[must_use]
-    pub fn use_winit_test_backend(&self) -> bool {
-        self.runtime.use_winit_test_backend
+    pub fn backend(&self) -> BackendKind {
+        BackendKind::from_runtime(
+            self.runtime.backend.as_deref(),
+            self.runtime.use_winit_test_backend,
+        )
     }
 
     #[must_use]
@@ -49,6 +69,21 @@ impl Config {
     pub fn test_client_commands(&self) -> &[String] {
         &self.runtime.test_client_commands
     }
+}
+
+fn default_config_paths() -> Vec<std::path::PathBuf> {
+    let mut paths = Vec::new();
+
+    paths.push(Path::new(DEFAULT_CONFIG_PATH).to_path_buf());
+
+    if let Ok(config_home) = env::var("XDG_CONFIG_HOME") {
+        paths.push(Path::new(&config_home).join("lime-de/lime.toml"));
+    } else if let Ok(home) = env::var("HOME") {
+        paths.push(Path::new(&home).join(".config/lime-de/lime.toml"));
+    }
+
+    paths.push(Path::new("/etc/lime-de/lime.toml").to_path_buf());
+    paths
 }
 
 impl Default for Config {
@@ -66,6 +101,7 @@ impl Default for Config {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct RuntimeConfig {
+    pub backend: Option<String>,
     pub use_winit_test_backend: bool,
     pub launch_test_client: bool,
     pub test_client_commands: Vec<String>,
@@ -74,7 +110,8 @@ pub struct RuntimeConfig {
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            use_winit_test_backend: true,
+            backend: Some(String::from("native")),
+            use_winit_test_backend: false,
             launch_test_client: true,
             test_client_commands: vec![
                 String::from("foot"),
@@ -82,6 +119,55 @@ impl Default for RuntimeConfig {
                 String::from("alacritty"),
                 String::from("kitty"),
             ],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackendKind {
+    DevWinit,
+    Native,
+}
+
+impl BackendKind {
+    #[must_use]
+    pub fn from_runtime(backend: Option<&str>, use_winit_test_backend: bool) -> Self {
+        if let Some(backend) = backend {
+            return Self::from_name(backend).unwrap_or_else(|| {
+                eprintln!("Unknown backend '{backend}', falling back to native");
+                Self::Native
+            });
+        }
+
+        if use_winit_test_backend {
+            Self::DevWinit
+        } else {
+            Self::Native
+        }
+    }
+
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "dev-winit" | "winit" => Some(Self::DevWinit),
+            "native" => Some(Self::Native),
+            "native2" => {
+                eprintln!("warning: backend 'native2' is deprecated; use 'native'");
+                Some(Self::Native)
+            }
+            "tty" => {
+                eprintln!("warning: backend 'tty' is deprecated; use 'native'");
+                Some(Self::Native)
+            }
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::DevWinit => "dev-winit",
+            Self::Native => "native",
         }
     }
 }

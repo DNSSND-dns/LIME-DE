@@ -26,9 +26,6 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default)]
-pub struct BackendState;
-
 pub struct WinitBackend {
     proxy: EventLoopProxy<WinitBackendEvent>,
     output_rx: Receiver<WinitBackendOutputEvent>,
@@ -183,10 +180,8 @@ struct WinitBackendApp {
     current_size: Arc<Mutex<Option<(u32, u32)>>>,
     init_tx: Option<mpsc::Sender<Result<EventLoopProxy<WinitBackendEvent>, String>>>,
     window: Option<Arc<Window>>,
-    context: Option<Context<Arc<Window>>>,
-    surface: Option<Surface<Arc<Window>, Arc<Window>>>,
+    renderer: Option<WindowRenderer>,
     pending_frame: RenderSceneFrame,
-    framebuffer_size: Option<(u32, u32)>,
 }
 
 impl WinitBackendApp {
@@ -206,10 +201,8 @@ impl WinitBackendApp {
             current_size,
             init_tx: Some(init_tx),
             window: None,
-            context: None,
-            surface: None,
+            renderer: None,
             pending_frame: RenderSceneFrame::new(crate::render::RenderColor::black()),
-            framebuffer_size: None,
         }
     }
 
@@ -240,42 +233,18 @@ impl WinitBackendApp {
         };
         let size = window.inner_size();
         self.set_current_size(size.width, size.height);
-        let Some(surface) = self.surface.as_mut() else {
-            return;
-        };
         let (Some(width), Some(height)) =
             (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         else {
             return;
         };
 
-        let framebuffer_size = (width.get(), height.get());
-        if self.framebuffer_size != Some(framebuffer_size) {
-            if let Err(error) = surface.resize(width, height) {
-                eprintln!("LIME DE winit test backend resize failed: {error}");
-                return;
-            }
-            self.framebuffer_size = Some(framebuffer_size);
-        }
-
-        let Ok(mut buffer) = surface.buffer_mut() else {
-            eprintln!("LIME DE winit test backend could not acquire pixel buffer");
+        let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
 
-        buffer.fill(self.pending_frame.clear_color.to_argb_u32());
-        draw_commands(
-            &mut buffer,
-            width.get(),
-            height.get(),
-            &self.pending_frame.commands,
-        );
-        for cursor in &self.pending_frame.cursor {
-            draw_rectangle(&mut buffer, width.get(), height.get(), *cursor);
-        }
-
-        if let Err(error) = buffer.present() {
-            eprintln!("LIME DE winit test backend present failed: {error}");
+        if let Err(error) = renderer.draw_frame(width, height, &self.pending_frame) {
+            eprintln!("LIME DE winit test backend render failed: {error}");
             return;
         }
 
@@ -283,8 +252,91 @@ impl WinitBackendApp {
     }
 }
 
+struct WindowRenderer(SoftbufferRenderer);
+
+impl WindowRenderer {
+    fn new(window: Arc<Window>, width: u32, height: u32) -> Result<Self, String> {
+        let _ = (width, height);
+        SoftbufferRenderer::new(window).map(Self)
+    }
+
+    fn draw_frame(
+        &mut self,
+        width: NonZeroU32,
+        height: NonZeroU32,
+        frame: &RenderSceneFrame,
+    ) -> Result<(), String> {
+        self.0.draw_frame(width, height, frame)
+    }
+}
+
+struct SoftbufferRenderer {
+    _context: Context<Arc<Window>>,
+    surface: Surface<Arc<Window>, Arc<Window>>,
+    framebuffer_size: Option<(u32, u32)>,
+}
+
+impl SoftbufferRenderer {
+    fn new(window: Arc<Window>) -> Result<Self, String> {
+        let context = Context::new(Arc::clone(&window))
+            .map_err(|error| format!("failed to create softbuffer context: {error}"))?;
+        let surface = Surface::new(&context, window)
+            .map_err(|error| format!("failed to create softbuffer surface: {error}"))?;
+
+        Ok(Self {
+            _context: context,
+            surface,
+            framebuffer_size: None,
+        })
+    }
+
+    fn draw_frame(
+        &mut self,
+        width: NonZeroU32,
+        height: NonZeroU32,
+        frame: &RenderSceneFrame,
+    ) -> Result<(), String> {
+        let framebuffer_size = (width.get(), height.get());
+        if self.framebuffer_size != Some(framebuffer_size) {
+            self.surface
+                .resize(width, height)
+                .map_err(|error| format!("softbuffer resize failed: {error}"))?;
+            self.framebuffer_size = Some(framebuffer_size);
+        }
+
+        let mut buffer = self
+            .surface
+            .buffer_mut()
+            .map_err(|error| format!("could not acquire softbuffer pixel buffer: {error}"))?;
+
+        draw_scene(buffer.as_mut(), width.get(), height.get(), frame);
+
+        buffer
+            .present()
+            .map_err(|error| format!("softbuffer present failed: {error}"))
+    }
+}
+
+fn draw_scene(
+    buffer: &mut [u32],
+    framebuffer_width: u32,
+    framebuffer_height: u32,
+    frame: &RenderSceneFrame,
+) {
+    buffer.fill(frame.clear_color.to_argb_u32());
+    draw_commands(
+        buffer,
+        framebuffer_width,
+        framebuffer_height,
+        &frame.commands,
+    );
+    for cursor in &frame.cursor {
+        draw_rectangle(buffer, framebuffer_width, framebuffer_height, *cursor);
+    }
+}
+
 fn draw_commands(
-    buffer: &mut softbuffer::Buffer<'_, Arc<Window>, Arc<Window>>,
+    buffer: &mut [u32],
     framebuffer_width: u32,
     framebuffer_height: u32,
     commands: &[RenderCommand],
@@ -326,20 +378,18 @@ impl ApplicationHandler<WinitBackendEvent> for WinitBackendApp {
         match event_loop.create_window(window_attributes) {
             Ok(window) => {
                 let window = Arc::new(window);
-                match Context::new(Arc::clone(&window)).and_then(|context| {
-                    Surface::new(&context, Arc::clone(&window)).map(|surface| (context, surface))
-                }) {
-                    Ok((context, surface)) => {
+                let size = window.inner_size();
+                match WindowRenderer::new(Arc::clone(&window), size.width, size.height) {
+                    Ok(renderer) => {
                         let size = window.inner_size();
                         self.set_current_size(size.width, size.height);
-                        self.context = Some(context);
-                        self.surface = Some(surface);
+                        self.renderer = Some(renderer);
                         self.window = Some(window);
                         self.send_init_result(Ok(self.proxy.clone()));
                     }
                     Err(error) => {
                         self.send_init_result(Err(format!(
-                            "failed to create winit pixel framebuffer: {error}"
+                            "failed to create winit renderer: {error}"
                         )));
                         event_loop.exit();
                     }
@@ -512,7 +562,7 @@ fn map_keycode(physical_key: PhysicalKey) -> Option<u32> {
 }
 
 fn draw_image(
-    buffer: &mut softbuffer::Buffer<'_, Arc<Window>, Arc<Window>>,
+    buffer: &mut [u32],
     framebuffer_width: u32,
     framebuffer_height: u32,
     image: &RenderImage,
@@ -565,7 +615,7 @@ fn draw_image(
 }
 
 fn draw_rounded_rectangle(
-    buffer: &mut softbuffer::Buffer<'_, Arc<Window>, Arc<Window>>,
+    buffer: &mut [u32],
     framebuffer_width: u32,
     framebuffer_height: u32,
     rectangle: RenderRoundedRect,
@@ -670,7 +720,7 @@ fn rounded_rect_coverage(x: i32, y: i32, rectangle: RenderRoundedRect) -> f32 {
 }
 
 fn draw_circle(
-    buffer: &mut softbuffer::Buffer<'_, Arc<Window>, Arc<Window>>,
+    buffer: &mut [u32],
     framebuffer_width: u32,
     framebuffer_height: u32,
     circle: RenderCircle,
@@ -730,7 +780,7 @@ fn blend_argb(destination: u32, source: u32, coverage: f32) -> u32 {
 }
 
 fn draw_text(
-    buffer: &mut softbuffer::Buffer<'_, Arc<Window>, Arc<Window>>,
+    buffer: &mut [u32],
     framebuffer_width: u32,
     framebuffer_height: u32,
     text: &RenderText,
@@ -763,7 +813,7 @@ fn draw_text(
 }
 
 fn draw_glyph(
-    buffer: &mut softbuffer::Buffer<'_, Arc<Window>, Arc<Window>>,
+    buffer: &mut [u32],
     framebuffer_width: u32,
     framebuffer_height: u32,
     x: i32,
@@ -942,7 +992,7 @@ fn glyph_rows(character: char) -> [u8; 7] {
 }
 
 fn draw_rectangle(
-    buffer: &mut softbuffer::Buffer<'_, Arc<Window>, Arc<Window>>,
+    buffer: &mut [u32],
     framebuffer_width: u32,
     framebuffer_height: u32,
     rectangle: RenderRect,

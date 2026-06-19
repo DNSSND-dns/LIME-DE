@@ -28,6 +28,12 @@ if [[ -d scripts ]]; then
   done < <(find scripts -type f -name '*.sh' | sort)
 fi
 
+if [[ -d reference ]]; then
+  while IFS= read -r file; do
+    FILES+=("$file")
+  done < <(find reference -type f \( -name '*.rs' -o -name '*.toml' \) | sort)
+fi
+
 : > "$OUTPUT_FILE"
 
 for file in "${FILES[@]}"; do

@@ -1,17 +1,14 @@
-mod animation;
 mod app;
 mod backend;
 mod client_buffer;
-mod compositor;
 mod config;
+mod core;
 mod error;
 mod input;
 mod output;
 mod render;
-mod scene;
-mod shell;
-mod state;
-mod window;
+
+pub use core::{animation, compositor, scene, shell, state, window};
 
 use std::process::ExitCode;
 

@@ -7,6 +7,7 @@ PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 REMOTE="${REMOTE:-origin}"
 BRANCH="${BRANCH:-main}"
 RUN_CHECKS=true
+RUN_TTY_CHECK=false
 DO_PULL=true
 DO_PUSH=true
 COMMIT_MESSAGE=""
@@ -22,6 +23,7 @@ Options:
   --no-pull           Do not pull before syncing.
   --no-push           Do not push after commit.
   --no-check          Skip cargo fmt/check.
+  --tty-check         Also run cargo check --features native_tty.
   -h, --help          Show this help.
 
 Examples:
@@ -49,6 +51,9 @@ while (($# > 0)); do
       ;;
     --no-check)
       RUN_CHECKS=false
+      ;;
+    --tty-check)
+      RUN_TTY_CHECK=true
       ;;
     -h | --help)
       usage
@@ -86,6 +91,10 @@ if [[ "$RUN_CHECKS" == true ]]; then
   cargo fmt --all --check
   printf 'Running cargo check...\n'
   cargo check
+  if [[ "$RUN_TTY_CHECK" == true ]]; then
+    printf 'Running cargo check --features native_tty...\n'
+    cargo check --features native_tty
+  fi
   printf '\n'
 fi
 

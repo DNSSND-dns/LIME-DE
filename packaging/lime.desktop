@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=LIME DE
+Comment=LIME desktop environment
+Exec=/usr/local/bin/lime-de-session
+Type=Application
+DesktopNames=LIME

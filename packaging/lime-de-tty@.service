@@ -1,0 +1,25 @@
+[Unit]
+Description=LIME DE native TTY session on /dev/%i
+After=systemd-user-sessions.service
+Conflicts=getty@%i.service
+
+[Service]
+Type=simple
+Environment=HOME=/home/dns
+Environment=LIME_SKIP_BUILD=1
+Environment=LIBSEAT_BACKEND=builtin
+Environment=LIME_TTY_BACKEND=native
+EnvironmentFile=-/etc/lime-de/native.env
+WorkingDirectory=/home/dns/Desktop/LIME DE
+ExecStart=/bin/bash /usr/local/bin/lime-de-run-tty
+StandardInput=tty
+StandardOutput=append:/home/dns/.local/state/lime-de/systemd-run.log
+StandardError=append:/home/dns/.local/state/lime-de/systemd-run.log
+TTYPath=/dev/%i
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

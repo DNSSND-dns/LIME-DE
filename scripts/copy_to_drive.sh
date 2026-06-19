@@ -12,6 +12,7 @@ EXCLUDES=(
   "--exclude=.idea"
   "--exclude=.vscode"
   "--exclude=*.log"
+  "--exclude=*.tmp"
 )
 
 print_mounts() {
@@ -122,7 +123,8 @@ DESTINATION="$DESTINATION_ROOT/$PROJECT_NAME"
 printf '\nCopy summary:\n'
 printf '  From: %s\n' "$PROJECT_ROOT"
 printf '  To:   %s\n' "$DESTINATION"
-printf '  Skip: target, .git, IDE folders, logs, project-code.txt\n\n'
+printf '  Keep: src, config, scripts, docs, assets, reference/anvil donor files\n'
+printf '  Skip: target, .git, IDE folders, logs, tmp files, project-code.txt\n\n'
 
 printf 'Start copy? [y/N]: ' >&2
 read -r confirm_copy
@@ -158,4 +160,8 @@ printf 'Copied project: %s\n' "$DESTINATION"
 printf 'Copied files: %s\n' "$copied_files"
 printf '\nOn the other computer run:\n'
 printf '  cd %q\n' "$DESTINATION"
-printf '  ./scripts/setup_lime_de.sh\n'
+printf '  ./scripts/setup_lime_de.sh --yes\n'
+printf '\nDev mode:\n'
+printf '  cargo run -- --backend dev-winit\n'
+printf '\nTTY backend smoke test:\n'
+printf '  cargo run --features native_tty -- --backend native\n'

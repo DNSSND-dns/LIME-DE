@@ -26,9 +26,12 @@ Current gaps:
 - Damage tracking.
 - Proper xdg configure lifecycle.
 - Cleaner module split for protocol state and buffer handling.
+- Native TTY backend still initializes DRM/GBM/EGL only; it does not present frames yet.
+- The temporary `dev-winit` backend renders through Softbuffer only.
 
 Next tasks:
 
+- Add TTY/DRM output mode selection and pageflip rendering.
 - A2: real client buffer rendering polish.
 - Add damage-aware redraw.
 - Avoid cloning full client images every frame.

@@ -1,6 +1,6 @@
 # LIME DE Architecture
 
-LIME DE is currently a single Rust binary that runs a minimal Wayland compositor runtime inside a safe Winit test window. It does not use DRM/KMS or GPU rendering yet. The Winit backend is the visible test output, while Smithay provides the Wayland protocol machinery.
+LIME DE is currently a single Rust binary that runs a minimal Wayland compositor runtime. The Winit backend is the development output inside an existing desktop session, while the TTY/udev backend is the native-session path for display-manager or real-TTY launch. Smithay provides the Wayland protocol machinery.
 
 ## Runtime
 
@@ -17,9 +17,17 @@ main.rs
 
 `main.rs` owns process-level startup and error reporting. `app.rs` owns application lifecycle and passes config into the compositor. `error.rs` provides the shared `AppError` type.
 
+Config loading order:
+
+1. `--config <path>`
+2. `LIME_CONFIG`
+3. `config/lime.toml`
+4. `$XDG_CONFIG_HOME/lime-de/lime.toml` or `~/.config/lime-de/lime.toml`
+5. `/etc/lime-de/lime.toml`
+
 ## Compositor
 
-`src/compositor.rs` is the current core. It owns:
+`src/core/compositor.rs` is the current core. It owns:
 
 - Smithay `Display`
 - calloop `EventLoop`
@@ -56,7 +64,7 @@ Wayland client
 
 ## Scene
 
-`src/scene.rs` stores an internal tree of scene nodes:
+`src/core/scene.rs` stores an internal tree of scene nodes:
 
 - `Output`
 - `Window`
@@ -66,7 +74,7 @@ The scene graph currently tracks structure and logs node creation/removal. Rende
 
 ## Window
 
-`src/window.rs` defines:
+`src/core/window.rs` defines:
 
 - `WindowId`
 - `WindowGeometry`
@@ -102,7 +110,11 @@ Current window behavior:
 
 ## Backend
 
-`src/backend.rs` contains the Winit test backend. It runs Winit on its own thread, sends events back to the compositor through an `mpsc` channel, and receives `RenderSceneFrame` through an `EventLoopProxy`.
+`src/backend/dev_winit/` contains the temporary nested preview backend.
+`src/backend/native/` contains the native session, udev, DRM/KMS, GBM, EGL, GLES,
+input, output, and event-loop layers.
+
+The Winit backend runs Winit on its own thread, sends events back to the compositor through an `mpsc` channel, and receives `RenderSceneFrame` through an `EventLoopProxy`.
 
 Backend responsibilities:
 
@@ -116,7 +128,12 @@ Backend responsibilities:
 - report mouse movement/buttons
 - report keyboard events
 
-This is intentionally not a real Linux session backend. DRM/KMS is still out of scope.
+The TTY/udev backend initializes a libseat session, discovers DRM devices, opens the primary GPU, creates GBM/EGL/GLES state, and logs connectors. It is the native session backend, but it still needs real output/pageflip plumbing before it can present the compositor frame directly on screen.
+
+System session packaging lives in `packaging/`:
+
+- `lime-de-session`: wrapper used by display managers
+- `lime.desktop`: Wayland session entry installed to `/usr/share/wayland-sessions`
 
 ## Input
 

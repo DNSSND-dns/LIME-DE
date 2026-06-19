@@ -57,7 +57,7 @@ use crate::{
     animation::{AnimationKind, AnimationManager, Easing},
     backend::{WinitBackend, WinitBackendOutputEvent, WinitMouseButton},
     client_buffer::read_shm_pixels,
-    config::{AnimationConfig, BehaviorConfig, StyleConfig},
+    config::{AnimationConfig, BackendKind, BehaviorConfig, StyleConfig},
     error::AppError,
     input::CursorState,
     output::Output,
@@ -77,7 +77,7 @@ use crate::{
 pub struct Compositor {
     initialized: bool,
     running: Arc<AtomicBool>,
-    use_winit_test_backend: bool,
+    backend_kind: BackendKind,
     launch_test_client: bool,
     test_client_commands: Vec<String>,
     style: StyleConfig,
@@ -2137,7 +2137,7 @@ struct WaylandRuntime {
 impl Compositor {
     #[must_use]
     pub fn new(
-        use_winit_test_backend: bool,
+        backend_kind: BackendKind,
         launch_test_client: bool,
         test_client_commands: Vec<String>,
         style: StyleConfig,
@@ -2147,7 +2147,7 @@ impl Compositor {
         Self {
             initialized: false,
             running: Arc::new(AtomicBool::new(false)),
-            use_winit_test_backend,
+            backend_kind,
             launch_test_client,
             test_client_commands,
             style,
@@ -2161,6 +2161,13 @@ impl Compositor {
     }
 
     pub fn initialize(&mut self) -> Result<(), AppError> {
+        if self.backend_kind == BackendKind::Native {
+            self.running.store(true, Ordering::Release);
+            self.initialized = true;
+            println!("Backend active: native");
+            return Ok(());
+        }
+
         let display = Display::new()
             .map_err(|error| AppError::new(format!("failed to create Wayland display: {error}")))?;
         let display_handle = display.handle();
@@ -2195,9 +2202,14 @@ impl Compositor {
             self.animations_config.clone(),
         );
 
-        if self.use_winit_test_backend {
-            let (width, height) = state.primary_output_size();
-            self.winit_backend = Some(WinitBackend::new(width, height)?);
+        match self.backend_kind {
+            BackendKind::DevWinit => {
+                let (width, height) = state.primary_output_size();
+                self.winit_backend = Some(WinitBackend::new(width, height)?);
+            }
+            BackendKind::Native => {
+                unreachable!("native initialization returns before dev-winit setup")
+            }
         }
 
         self.wayland = Some(WaylandRuntime {
@@ -2221,6 +2233,7 @@ impl Compositor {
         self.initialized = true;
 
         println!("Wayland display initialized");
+        println!("Backend active: {}", self.backend_kind.name());
         println!(
             "Wayland socket created: {}",
             self.wayland
@@ -2235,8 +2248,10 @@ impl Compositor {
                 .ok_or_else(|| AppError::new("Wayland runtime is missing"))?
                 .socket_name
         );
-        if self.launch_test_client {
+        if self.launch_test_client && self.backend_kind == BackendKind::DevWinit {
             self.launch_test_client();
+        } else if self.launch_test_client {
+            println!("Test client launch skipped for TTY backend skeleton");
         }
 
         Ok(())
@@ -2296,6 +2311,21 @@ impl Compositor {
     pub fn run(&mut self) -> Result<(), AppError> {
         if !self.initialized {
             return Err(AppError::new("compositor runtime is not initialized"));
+        }
+
+        if self.backend_kind == BackendKind::Native {
+            #[cfg(feature = "native_tty")]
+            {
+                return crate::backend::native::run()
+                    .map_err(|error| AppError::new(format!("native backend failed: {error}")));
+            }
+
+            #[cfg(not(feature = "native_tty"))]
+            {
+                return Err(AppError::new(
+                    "native backend requires the Cargo feature 'native_tty'",
+                ));
+            }
         }
 
         println!(
@@ -2412,7 +2442,7 @@ fn terminate_child_process(child: &mut Child, label: &str) {
 impl Default for Compositor {
     fn default() -> Self {
         Self::new(
-            false,
+            BackendKind::DevWinit,
             false,
             Vec::new(),
             StyleConfig::default(),

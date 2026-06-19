@@ -1,5 +1,9 @@
 /target/
 /project-code.txt
+/smithay/
+/_references/
+/reference/
+/docs/native_refs/
 
 *.log
 *.tmp

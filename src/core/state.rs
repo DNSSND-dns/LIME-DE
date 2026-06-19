@@ -3,11 +3,14 @@ use crate::{
     render::RenderState, window::WindowState,
 };
 
+use super::layout::LayoutState;
+
 #[derive(Debug)]
 pub struct AppState {
     pub config: Config,
     pub backend: BackendState,
     pub input: InputState,
+    pub layout: LayoutState,
     pub output: OutputState,
     pub render: RenderState,
     pub windows: WindowState,
@@ -20,6 +23,7 @@ impl AppState {
             config,
             backend: BackendState,
             input: InputState,
+            layout: LayoutState,
             output: OutputState,
             render: RenderState,
             windows: WindowState,
@@ -36,6 +40,7 @@ impl AppState {
         let _modules = (
             &self.backend,
             &self.input,
+            &self.layout,
             &self.output,
             &self.render,
             &self.windows,

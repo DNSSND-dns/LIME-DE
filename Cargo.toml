@@ -6,12 +6,26 @@ license = "MIT"
 
 [dependencies]
 ctrlc = "3.5.1"
+input = { version = "0.9.0", default-features = false, features = ["libinput_1_19", "udev"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 shlex = "1.3.0"
 softbuffer = { version = "0.4.6", default-features = false, features = ["wayland", "wayland-dlopen"] }
 smithay = { version = "0.7.0", default-features = false, features = ["wayland_frontend"] }
 toml = "0.9.8"
 winit = { version = "0.30.12", default-features = false, features = ["wayland", "wayland-dlopen", "rwh_06"] }
+
+[features]
+default = []
+native_tty = [
+    "input",
+    "smithay/backend_drm",
+    "smithay/backend_egl",
+    "smithay/backend_gbm",
+    "smithay/backend_libinput",
+    "smithay/backend_udev",
+    "smithay/backend_session_libseat",
+    "smithay/renderer_gl",
+]
 
 [lints.rust]
 unsafe_code = "deny"
