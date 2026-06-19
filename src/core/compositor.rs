@@ -55,15 +55,15 @@ use smithay::{
 
 use crate::{
     animation::{AnimationKind, AnimationManager, Easing},
-    backend::{WinitBackend, WinitBackendOutputEvent, WinitMouseButton},
+    backend::{BackendInputEvent, PointerButton, WinitBackend},
     client_buffer::read_shm_pixels,
     config::{AnimationConfig, BackendKind, BehaviorConfig, StyleConfig},
     error::AppError,
     input::CursorState,
     output::Output,
     render::{
-        RenderBackend, RenderCircle, RenderColor, RenderImage, RenderRect, RenderRoundedRect,
-        RenderSceneFrame, RenderText,
+        RenderCircle, RenderColor, RenderImage, RenderRect, RenderRoundedRect, RenderSceneFrame,
+        RenderText,
     },
     scene::{Scene, SceneNodeId},
     shell::{DockItemId, Shell},
@@ -72,6 +72,8 @@ use crate::{
         WindowGeometry, WindowId,
     },
 };
+
+use super::actions::WindowAction;
 
 #[derive(Debug)]
 pub struct Compositor {
@@ -106,7 +108,6 @@ pub struct CompositorState {
     animations_config: AnimationConfig,
     outputs: Vec<Output>,
     wayland_outputs: Vec<SmithayOutput>,
-    render_backend: RenderBackend,
     scene: Scene,
     shell: Shell,
     animations: AnimationManager,
@@ -128,11 +129,12 @@ pub struct CompositorState {
     active_window: Option<WindowId>,
     interaction: PointerInteraction,
     pending_launch_commands: Vec<Vec<String>>,
+    exit_requested: bool,
 }
 
 impl CompositorState {
     #[must_use]
-    fn new(
+    pub(crate) fn new(
         display_handle: DisplayHandle,
         style: StyleConfig,
         behavior: BehaviorConfig,
@@ -159,7 +161,6 @@ impl CompositorState {
             .collect::<Vec<_>>();
         let cursor = CursorState::centered(outputs[0].width, outputs[0].height);
         println!("Cursor initialized");
-        let render_backend = RenderBackend::new();
         let mut scene = Scene::new();
         let mut shell = Shell::new(&style);
         let mut output_scene_nodes = Vec::new();
@@ -189,7 +190,6 @@ impl CompositorState {
             animations_config,
             outputs,
             wayland_outputs,
-            render_backend,
             scene,
             shell,
             animations: AnimationManager::new(),
@@ -211,10 +211,14 @@ impl CompositorState {
             active_window: None,
             interaction: PointerInteraction::None,
             pending_launch_commands: Vec::new(),
+            exit_requested: false,
         }
     }
 
-    fn insert_client(&mut self, stream: std::os::unix::net::UnixStream) -> Result<(), AppError> {
+    pub(crate) fn insert_client(
+        &mut self,
+        stream: std::os::unix::net::UnixStream,
+    ) -> Result<(), AppError> {
         self.display_handle
             .insert_client(stream, Arc::new(ClientState::default()))
             .map(|_| ())
@@ -481,7 +485,7 @@ impl CompositorState {
         surface.send_configure();
     }
 
-    fn sync_primary_output_size(&mut self, width: u32, height: u32) {
+    pub(crate) fn sync_primary_output_size(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
         }
@@ -526,7 +530,7 @@ impl CompositorState {
         self.request_redraw();
     }
 
-    fn render_frame(&mut self) -> RenderSceneFrame {
+    pub(crate) fn render_frame(&mut self) -> RenderSceneFrame {
         let now = Instant::now();
         let delta_ms = now.duration_since(self.last_frame_time).as_millis() as u64;
         self.frame_counter += 1;
@@ -769,18 +773,6 @@ impl CompositorState {
                 ));
         }
 
-        for output in &self.outputs {
-            self.render_backend.begin_frame(output);
-            self.render_backend.clear(scene_frame.clear_color);
-            for rectangle in &scene_frame.rectangles {
-                self.render_backend.draw_rect(*rectangle);
-            }
-            for cursor in &scene_frame.cursor {
-                self.render_backend.draw_rect(*cursor);
-            }
-            self.render_backend.finish_frame();
-        }
-
         self.last_render_command_count = scene_frame.commands.len();
         self.mark_clean();
         if self.animations.has_active() {
@@ -864,8 +856,12 @@ impl CompositorState {
         })
     }
 
-    fn take_pending_launch_commands(&mut self) -> Vec<Vec<String>> {
+    pub(crate) fn take_pending_launch_commands(&mut self) -> Vec<Vec<String>> {
         std::mem::take(&mut self.pending_launch_commands)
+    }
+
+    pub(crate) fn take_exit_requested(&mut self) -> bool {
+        std::mem::take(&mut self.exit_requested)
     }
 
     fn create_window(&mut self, surface: ToplevelSurface) -> WindowId {
@@ -1006,9 +1002,15 @@ impl CompositorState {
         }
     }
 
-    fn handle_backend_event(&mut self, event: WinitBackendOutputEvent) {
+    pub(crate) fn handle_backend_event(&mut self, event: BackendInputEvent) {
         match event {
-            WinitBackendOutputEvent::MouseMoved { x, y } => {
+            #[cfg(feature = "native_tty")]
+            BackendInputEvent::PointerMotion { dx, dy } => {
+                let x = self.cursor.x + dx;
+                let y = self.cursor.y + dy;
+                self.handle_backend_event(BackendInputEvent::PointerMotionAbsolute { x, y });
+            }
+            BackendInputEvent::PointerMotionAbsolute { x, y } => {
                 let Some(output) = self.outputs.first() else {
                     return;
                 };
@@ -1028,13 +1030,15 @@ impl CompositorState {
                     self.request_redraw();
                 }
             }
-            WinitBackendOutputEvent::MouseButton { button, pressed } => {
+            BackendInputEvent::PointerButton { button, pressed } => {
                 let was_interacting = self.is_window_interaction_active();
                 let released_interaction = self.interaction;
                 let mut consumed_by_compositor = false;
 
-                if button == WinitMouseButton::Left && pressed {
-                    if self.shell.panel_contains(self.cursor.x, self.cursor.y) {
+                if button == PointerButton::Left && pressed {
+                    if self.handle_panel_button_press() {
+                        consumed_by_compositor = true;
+                    } else if self.shell.panel_contains(self.cursor.x, self.cursor.y) {
                         consumed_by_compositor = true;
                     } else if self.handle_dock_button_press() {
                         consumed_by_compositor = true;
@@ -1050,7 +1054,7 @@ impl CompositorState {
                         }
                     }
                 }
-                if button == WinitMouseButton::Left && !pressed {
+                if button == PointerButton::Left && !pressed {
                     self.interaction = PointerInteraction::None;
                     consumed_by_compositor = was_interacting;
                     if let PointerInteraction::Resize { window_id, .. } = released_interaction {
@@ -1066,13 +1070,13 @@ impl CompositorState {
                 }
                 self.request_redraw();
             }
-            WinitBackendOutputEvent::Keyboard { keycode, pressed } => {
+            BackendInputEvent::Keyboard { keycode, pressed } => {
                 self.send_keyboard_key(keycode, pressed);
             }
-            WinitBackendOutputEvent::Resized { width, height } => {
+            BackendInputEvent::OutputResized { width, height } => {
                 self.sync_primary_output_size(width, height);
             }
-            WinitBackendOutputEvent::FramePresented => {
+            BackendInputEvent::FramePresented => {
                 self.mark_frame_presented();
                 self.send_frame_callbacks();
             }
@@ -1094,6 +1098,12 @@ impl CompositorState {
                 callback.done(timestamp);
             }
         }
+    }
+
+    #[cfg(feature = "native_tty")]
+    pub(crate) fn handle_frame_presented(&mut self) {
+        self.mark_frame_presented();
+        self.send_frame_callbacks();
     }
 
     fn frame_timestamp(&self) -> u32 {
@@ -1119,6 +1129,7 @@ impl CompositorState {
         if self.active_window == Some(tracked.window.id) {
             self.active_window = None;
         }
+        self.animations.cancel_window_animation(tracked.window.id);
         if let Some(scene_node_id) = tracked.scene_node {
             if self.scene.remove_node(scene_node_id).is_some() {
                 println!("Scene node removed");
@@ -1243,7 +1254,7 @@ impl CompositorState {
             self.cursor.x,
             self.cursor.y,
         ) {
-            self.close_window(window_id);
+            self.execute_window_action(window_id, WindowAction::Close);
             return true;
         }
         if button_hit(
@@ -1251,7 +1262,7 @@ impl CompositorState {
             self.cursor.x,
             self.cursor.y,
         ) {
-            self.toggle_maximize_window(window_id);
+            self.execute_window_action(window_id, WindowAction::ToggleMaximize);
             return true;
         }
         if button_hit(
@@ -1259,7 +1270,7 @@ impl CompositorState {
             self.cursor.x,
             self.cursor.y,
         ) {
-            self.minimize_window(window_id);
+            self.execute_window_action(window_id, WindowAction::Minimize);
             return true;
         }
 
@@ -1276,11 +1287,26 @@ impl CompositorState {
 
         println!("Dock item activated: {label}");
         if let Some(window_id) = self.visible_window_for_dock_item(item_id) {
-            self.minimize_window(window_id);
-        } else if !self.restore_minimized_window_for_dock_item(item_id) {
+            self.execute_window_action(window_id, WindowAction::Minimize);
+        } else if let Some(window_id) = self.minimized_window_for_dock_item(item_id) {
+            self.execute_window_action(window_id, WindowAction::Restore);
+        } else {
             self.pending_launch_commands.push(commands);
             println!("Dock launch requested: {label}");
         }
+        true
+    }
+
+    fn handle_panel_button_press(&mut self) -> bool {
+        let Some(item) = self.shell.panel_item_at(self.cursor.x, self.cursor.y) else {
+            return false;
+        };
+
+        if item.id == crate::core::shell::panel::PanelItemId::new(1) {
+            println!("Panel exit requested");
+            self.exit_requested = true;
+        }
+
         true
     }
 
@@ -1297,6 +1323,28 @@ impl CompositorState {
                     .is_some_and(|app_id| self.shell.dock().app_matches_item(item_id, app_id)))
             .then_some(*window_id)
         })
+    }
+
+    fn minimized_window_for_dock_item(&self, item_id: DockItemId) -> Option<WindowId> {
+        self.windows.iter().find_map(|tracked| {
+            (tracked.window.mapped
+                && tracked.window.minimized
+                && tracked
+                    .window
+                    .app_id
+                    .as_deref()
+                    .is_some_and(|app_id| self.shell.dock().app_matches_item(item_id, app_id)))
+            .then_some(tracked.window.id)
+        })
+    }
+
+    fn execute_window_action(&mut self, window_id: WindowId, action: WindowAction) {
+        match action {
+            WindowAction::Close => self.close_window(window_id),
+            WindowAction::Minimize => self.minimize_window(window_id),
+            WindowAction::Restore => self.restore_minimized_window(window_id),
+            WindowAction::ToggleMaximize => self.toggle_maximize_window(window_id),
+        }
     }
 
     fn close_window(&mut self, window_id: WindowId) {
@@ -1352,6 +1400,24 @@ impl CompositorState {
             return;
         }
         let app_id = self.windows[index].window.app_id.clone();
+        if self
+            .shell
+            .dock()
+            .item_rect_for_app(app_id.as_deref())
+            .is_none()
+        {
+            let label = self.windows[index]
+                .window
+                .title
+                .clone()
+                .or_else(|| app_id.clone())
+                .unwrap_or_else(|| format!("Window {window_id}"));
+            if let Some(app_id) = app_id.as_deref() {
+                self.shell.dock_mut().ensure_item_for_app(app_id, label);
+                let (width, height) = self.primary_output_size();
+                self.shell.layout(width, height);
+            }
+        }
         let Some(to_rect) = self.shell.dock().item_rect_for_app(app_id.as_deref()) else {
             return;
         };
@@ -1394,25 +1460,23 @@ impl CompositorState {
         self.request_redraw();
     }
 
-    fn restore_minimized_window_for_dock_item(&mut self, item_id: DockItemId) -> bool {
-        let Some(index) = self.windows.iter().position(|tracked| {
-            tracked.window.mapped
-                && tracked.window.minimized
-                && tracked
-                    .window
-                    .app_id
-                    .as_deref()
-                    .is_some_and(|app_id| self.shell.dock().app_matches_item(item_id, app_id))
-        }) else {
-            return false;
+    fn restore_minimized_window(&mut self, window_id: WindowId) {
+        let Some(index) = self.window_index_for_id(window_id) else {
+            return;
         };
-        let window_id = self.windows[index].window.id;
+        if !self.windows[index].window.minimized {
+            return;
+        }
         if self.windows[index].window.animating {
-            return false;
+            return;
         }
         let app_id = self.windows[index].window.app_id.clone();
         let Some(from_rect) = self.shell.dock().item_rect_for_app(app_id.as_deref()) else {
-            return false;
+            self.windows[index].window.minimized = false;
+            self.focus_window(window_id);
+            self.update_pointer_focus();
+            self.request_redraw();
+            return;
         };
         let decoration = self.window_decoration();
         let to_rect = self.geometry_for_output(self.windows[index].window.geometry);
@@ -1424,7 +1488,8 @@ impl CompositorState {
                 .set_active_for_app(app_id.as_deref(), false);
             self.focus_window(window_id);
             self.update_pointer_focus();
-            return true;
+            self.request_redraw();
+            return;
         }
 
         self.windows[index].window.animating = true;
@@ -1444,7 +1509,6 @@ impl CompositorState {
         println!("Restore animation started: {window_id}");
         self.update_pointer_focus();
         self.request_redraw();
-        true
     }
 
     fn start_open_window_animation(&mut self, index: usize) {
@@ -1501,7 +1565,6 @@ impl CompositorState {
                     println!("Open animation finished: {}", animation.window_id);
                 }
                 AnimationKind::CloseToDock => {
-                    self.windows[index].window.minimized = true;
                     self.windows[index].window.animation_client_pixels = None;
                     self.shell
                         .dock_mut()
@@ -1611,6 +1674,9 @@ impl CompositorState {
         if self.windows[index].window.animating || self.windows[index].window.minimized {
             return false;
         }
+        if self.windows[index].window.maximized {
+            return false;
+        }
         let geometry = self.geometry_for_output(self.windows[index].window.geometry);
         let start_cursor = (self.cursor.x, self.cursor.y);
         let edge = self.resize_edge_for_window(window_id, self.cursor.x, self.cursor.y);
@@ -1628,10 +1694,6 @@ impl CompositorState {
         if !self.is_titlebar_hit(geometry, self.cursor.x, self.cursor.y) {
             return false;
         }
-        if self.windows[index].window.maximized {
-            return false;
-        }
-
         self.interaction = PointerInteraction::Drag {
             window_id,
             start_cursor,
@@ -1745,11 +1807,11 @@ impl CompositorState {
         pointer.frame(self);
     }
 
-    fn send_pointer_button(&mut self, button: WinitMouseButton, pressed: bool) {
+    fn send_pointer_button(&mut self, button: PointerButton, pressed: bool) {
         let button = match button {
-            WinitMouseButton::Left => 0x110,
-            WinitMouseButton::Right => 0x111,
-            WinitMouseButton::Middle => 0x112,
+            PointerButton::Left => 0x110,
+            PointerButton::Right => 0x111,
+            PointerButton::Middle => 0x112,
         };
         let state = if pressed {
             ButtonState::Pressed
@@ -2316,8 +2378,14 @@ impl Compositor {
         if self.backend_kind == BackendKind::Native {
             #[cfg(feature = "native_tty")]
             {
-                return crate::backend::native::run()
-                    .map_err(|error| AppError::new(format!("native backend failed: {error}")));
+                return crate::backend::native::run(
+                    self.launch_test_client,
+                    self.test_client_commands.clone(),
+                    self.style.clone(),
+                    self.behavior.clone(),
+                    self.animations_config.clone(),
+                )
+                .map_err(|error| AppError::new(format!("native backend failed: {error}")));
             }
 
             #[cfg(not(feature = "native_tty"))]
@@ -2339,7 +2407,7 @@ impl Compositor {
         println!("Event loop running");
 
         while self.running.load(Ordering::Acquire) {
-            let pending_launch_commands = {
+            let (pending_launch_commands, exit_requested) = {
                 let wayland = self
                     .wayland
                     .as_mut()
@@ -2393,11 +2461,18 @@ impl Compositor {
                 }
 
                 wayland.state.log_memory_debug_tick();
-                wayland.state.take_pending_launch_commands()
+                (
+                    wayland.state.take_pending_launch_commands(),
+                    wayland.state.take_exit_requested(),
+                )
             };
 
             for commands in pending_launch_commands {
                 self.launch_client_commands(&commands, false);
+            }
+            if exit_requested {
+                println!("Panel exit requested; stopping compositor");
+                self.running.store(false, Ordering::Release);
             }
         }
 

@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use crate::output::Output;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RenderColor {
     pub red: f32,
@@ -337,41 +335,6 @@ impl RenderColor {
             blue: 0.88,
             alpha: 1.0,
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RenderFrame {
-    output_name: String,
-}
-
-#[derive(Debug, Default)]
-pub struct RenderBackend {
-    current_frame: Option<RenderFrame>,
-}
-
-impl RenderBackend {
-    #[must_use]
-    pub fn new() -> Self {
-        println!("Render backend initialized");
-
-        Self {
-            current_frame: None,
-        }
-    }
-
-    pub fn begin_frame(&mut self, output: &Output) {
-        self.current_frame = Some(RenderFrame {
-            output_name: output.name().to_owned(),
-        });
-    }
-
-    pub fn clear(&mut self, _color: RenderColor) {}
-
-    pub fn draw_rect(&mut self, _rect: RenderRect) {}
-
-    pub fn finish_frame(&mut self) {
-        self.current_frame = None;
     }
 }
 

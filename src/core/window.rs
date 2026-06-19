@@ -45,22 +45,6 @@ pub struct WindowDecoration {
 }
 
 impl WindowDecoration {
-    pub const TITLEBAR_HEIGHT: i32 = 32;
-    pub const BORDER_WIDTH: i32 = 1;
-
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            titlebar_height: Self::TITLEBAR_HEIGHT,
-            border_width: Self::BORDER_WIDTH,
-            corner_radius: 10,
-            bottom_corner_radius: 0,
-            button_diameter: 12,
-            button_spacing: 8,
-            button_left_padding: 12,
-        }
-    }
-
     #[must_use]
     pub fn from_style(style: &WindowStyleConfig) -> Self {
         Self {
@@ -116,12 +100,6 @@ impl WindowDecoration {
             y,
             diameter: self.button_diameter,
         }
-    }
-}
-
-impl Default for WindowDecoration {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

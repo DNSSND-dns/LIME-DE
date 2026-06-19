@@ -9,10 +9,23 @@ LOG_DIR="${XDG_STATE_HOME:-$REAL_HOME/.local/state}/lime-de"
 LOG_FILE="$LOG_DIR/tty.log"
 BUILD_MODE="${LIME_BUILD_MODE:-release}"
 LIME_TTY_BACKEND="${LIME_TTY_BACKEND:-native}"
+# Disabled by default: the compositor runs until Ctrl+C or a fatal error.
+# Set LIME_TTY_TIMEOUT=N explicitly to enable the emergency watchdog.
+LIME_TTY_TIMEOUT="${LIME_TTY_TIMEOUT:-0}"
 
 mkdir -p "$LOG_DIR"
 printf 'LIME DE TTY starting. Log: %s\n' "$LOG_FILE"
+exec 3>&1 4>&2
 exec >>"$LOG_FILE" 2>&1
+
+restore_tty() {
+  if [[ -c /dev/tty ]]; then
+    stty sane </dev/tty 2>/dev/null || true
+    printf '\033c' >/dev/tty 2>/dev/null || true
+  fi
+}
+
+trap restore_tty EXIT HUP INT TERM
 
 printf '\n=== LIME DE TTY run: %s ===\n' "$(date -Is)"
 printf 'Project: %s\n' "$PROJECT_ROOT"
@@ -119,8 +132,39 @@ printf 'Binary: %s\n' "$BINARY"
 printf 'Config: %s\n' "$LIME_CONFIG"
 printf 'LIBSEAT_BACKEND=%s\n' "$LIBSEAT_BACKEND"
 printf 'LIME_TTY_BACKEND=%s\n' "$LIME_TTY_BACKEND"
+printf 'LIME_TTY_TIMEOUT=%s\n' "$LIME_TTY_TIMEOUT"
 printf 'Runtime XDG_SESSION_TYPE=%s\n' "${XDG_SESSION_TYPE:-}"
 printf 'Runtime XDG_RUNTIME_DIR=%s\n' "${XDG_RUNTIME_DIR:-}"
 printf 'Starting native TTY backend...\n'
 
-exec "$BINARY" --backend "$LIME_TTY_BACKEND" --no-test-client "$@"
+if [[ "$LIME_TTY_TIMEOUT" == "0" ]]; then
+  printf 'Safety watchdog: disabled (exit only on error or Ctrl+C).\n'
+  set +e
+  "$BINARY" --backend "$LIME_TTY_BACKEND" "$@"
+  STATUS=$?
+  set -e
+
+  if [[ "$STATUS" != "0" && "$STATUS" != "130" && "$STATUS" != "143" ]]; then
+    printf 'LIME DE exited with error status %s. See %s\n' "$STATUS" "$LOG_FILE" >&3
+  fi
+
+  exit "$STATUS"
+else
+  printf 'Safety watchdog: TERM after %ss, KILL 3s later.\n' "$LIME_TTY_TIMEOUT"
+  printf 'LIME DE safety watchdog: automatic exit after %ss.\n' "$LIME_TTY_TIMEOUT" >&3
+
+  set +e
+  timeout --foreground --signal=TERM --kill-after=3s \
+    "${LIME_TTY_TIMEOUT}s" \
+    "$BINARY" --backend "$LIME_TTY_BACKEND" "$@"
+  STATUS=$?
+  set -e
+
+  if [[ "$STATUS" == "124" || "$STATUS" == "137" ]]; then
+    printf 'Safety watchdog stopped LIME DE (status %s).\n' "$STATUS"
+    printf 'LIME DE was stopped by the safety watchdog.\n' >&3
+    exit 0
+  fi
+
+  exit "$STATUS"
+fi

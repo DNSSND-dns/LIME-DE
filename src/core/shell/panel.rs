@@ -203,7 +203,6 @@ impl Panel {
         changed
     }
 
-    #[allow(dead_code)]
     #[must_use]
     pub fn item_at(&self, x: f64, y: f64) -> Option<&PanelItem> {
         all_sections(
@@ -227,19 +226,6 @@ impl Panel {
     #[must_use]
     pub fn height(&self) -> i32 {
         self.style.height + self.style.top_margin
-    }
-
-    #[allow(dead_code)]
-    pub fn set_active(&mut self, id: PanelItemId, active: bool) {
-        for section in [
-            &mut self.left_section,
-            &mut self.center_section,
-            &mut self.right_section,
-        ] {
-            if let Some(item) = section.iter_mut().find(|item| item.id == id) {
-                item.active = active;
-            }
-        }
     }
 }
 

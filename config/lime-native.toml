@@ -3,7 +3,7 @@ app_name = "LIME DE"
 [runtime]
 backend = "native"
 use_winit_test_backend = false
-launch_test_client = false
+launch_test_client = true
 test_client_commands = [
   "foot",
   "weston-terminal",

@@ -15,4 +15,4 @@ printf 'Log: %s\n' "$LOG_FILE"
 
 cd "$PROJECT_ROOT"
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
-exec cargo run -- --backend dev-winit "$@"
+exec cargo run --features dev_winit -- --backend dev-winit "$@"

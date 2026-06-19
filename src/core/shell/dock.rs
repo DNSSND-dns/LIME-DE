@@ -110,6 +110,7 @@ fn default_aliases_for_app(app_id: &str) -> Vec<&'static str> {
         ],
         "files" => vec![
             "files",
+            "lime-files",
             "file-manager",
             "nautilus",
             "org.gnome.nautilus",
@@ -141,7 +142,13 @@ fn default_commands_for_app(app_id: &str) -> Vec<String> {
             .into_iter()
             .map(String::from)
             .collect(),
-        "files" => ["nautilus", "dolphin", "thunar", "pcmanfm"]
+        "files" => [
+            "./target/release/lime-files",
+            "nautilus",
+            "dolphin",
+            "thunar",
+            "pcmanfm",
+        ]
             .into_iter()
             .map(String::from)
             .collect(),
@@ -165,6 +172,7 @@ pub struct Dock {
     pub position: DockPosition,
     pub style: DockStyle,
     items: Vec<DockItem>,
+    next_dynamic_id: u64,
 }
 
 impl Dock {
@@ -179,7 +187,19 @@ impl Dock {
                 DockItem::new(DockItemId::new(3), "browser", "Brave"),
                 DockItem::new(DockItemId::new(4), "settings", "Settings"),
             ],
+            next_dynamic_id: 100,
         }
+    }
+
+    pub fn ensure_item_for_app(&mut self, app_id: &str, label: String) {
+        if self.matching_item(Some(app_id)).is_some() {
+            return;
+        }
+
+        let mut item = DockItem::new(DockItemId::new(self.next_dynamic_id), app_id, label);
+        item.commands.clear();
+        self.next_dynamic_id = self.next_dynamic_id.saturating_add(1);
+        self.items.push(item);
     }
 
     pub fn layout(&mut self, output_width: u32, output_height: u32) {

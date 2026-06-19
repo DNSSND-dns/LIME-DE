@@ -61,11 +61,6 @@ impl Output {
         )
     }
 
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
     pub fn resize(&mut self, width: u32, height: u32) -> bool {
         if width == 0 || height == 0 {
             return false;

@@ -1,4 +1,3 @@
-pub mod actions;
 pub mod dock;
 pub mod panel;
 

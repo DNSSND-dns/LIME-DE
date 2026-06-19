@@ -185,6 +185,11 @@ impl AnimationManager {
         finished
     }
 
+    pub fn cancel_window_animation(&mut self, window_id: WindowId) {
+        self.window_animations
+            .retain(|animation| animation.window_id != window_id);
+    }
+
     #[must_use]
     pub fn frame_for_window(&self, window_id: WindowId) -> Option<AnimatedWindowFrame> {
         self.window_animations

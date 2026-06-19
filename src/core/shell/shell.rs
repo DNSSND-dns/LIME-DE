@@ -2,7 +2,7 @@ use crate::config::StyleConfig;
 
 use super::{
     dock::{Dock, DockItem},
-    panel::Panel,
+    panel::{Panel, PanelItem},
     DockStyle, PanelStyle,
 };
 
@@ -52,6 +52,11 @@ impl Shell {
     #[must_use]
     pub fn panel_contains(&self, x: f64, y: f64) -> bool {
         x >= 0.0 && y >= 0.0 && y < f64::from(self.reserved_top_height())
+    }
+
+    #[must_use]
+    pub fn panel_item_at(&self, x: f64, y: f64) -> Option<&PanelItem> {
+        self.panel.item_at(x, y)
     }
 
     #[must_use]
